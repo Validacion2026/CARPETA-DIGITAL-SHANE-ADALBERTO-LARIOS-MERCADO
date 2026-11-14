@@ -309,16 +309,33 @@
     .modal-body {
       flex: 1;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       overflow: auto;
+      gap: 14px;
     }
 
     .modal-body img {
       max-width: 100%;
-      max-height: 85vh;
+      max-height: 75vh;
       border-radius: 8px;
       box-shadow: 0 8px 25px rgba(0,0,0,0.7);
+    }
+
+    .btn-descargar-visor {
+      padding: 10px 20px;
+      background: linear-gradient(135deg, #d4af37 0%, #aa820a 100%);
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
 
     /* Cuadros de Diálogo */
@@ -520,7 +537,7 @@
 
 </div>
 
-<!-- MODAL VISOR DE FOTOS -->
+<!-- MODAL VISOR DE FOTOS CON BOTÓN DE DESCARGA DIRECTA -->
 <div id="modalVisor" class="modal hidden">
   <div class="modal-header">
     <div id="modalTitulo" class="modal-title">Documento</div>
@@ -528,6 +545,9 @@
   </div>
   <div class="modal-body">
     <img id="modalImg" src="" alt="Soporte visual">
+    <button id="btnDescargarFotoVisor" class="btn-descargar-visor" onclick="descargarArchivoDirecto()">
+      📥 Guardar Imagen en el Dispositivo
+    </button>
   </div>
 </div>
 
@@ -572,8 +592,11 @@
     estado: "VERIFICADO / ACTIVO"
   };
 
-  // VERSIÓN DE LOS ARCHIVOS (Sube este número a "2", "3", etc., si reemplazas un PDF o foto con el mismo nombre)
+  // VERSIÓN DE LOS ARCHIVOS
   const VERSION_ARCHIVOS = "1";
+
+  // Variable auxiliar para recordar qué imagen está abierta en el visor
+  let archivoImagenActual = "";
 
   // Retorna el PIN activo
   function obtenerPinActivo() {
@@ -609,7 +632,6 @@
     const elW8 = document.getElementById("btnW8");
     if (elW8 && !DOCUMENTOS_ACTIVOS.tieneW8) elW8.classList.add("hidden");
 
-    // Inyecta automáticamente la versión (?v=...) a todos los enlaces PDF en pantalla para evitar caché viejo
     const enlacesPdf = document.querySelectorAll('a[href$=".pdf"]');
     enlacesPdf.forEach(function(enlace) {
       const hrefBase = enlace.getAttribute('href').split('?')[0];
@@ -739,6 +761,7 @@
     const elImg = document.getElementById("modalImg");
     const modal = document.getElementById("modalVisor");
 
+    archivoImagenActual = archivo;
     if (elTitulo) elTitulo.innerText = titulo;
     if (elImg) elImg.src = archivo + "?v=" + VERSION_ARCHIVOS;
     if (modal) modal.classList.remove("hidden");
@@ -749,6 +772,34 @@
     const elImg = document.getElementById("modalImg");
     if (modal) modal.classList.add("hidden");
     if (elImg) elImg.src = "";
+    archivoImagenActual = "";
+  }
+
+  // DESCARGA FORZADA MEDIANTE BLOB (FUNCIONA ONLINE Y OFFLINE EN MÓVILES)
+  function descargarArchivoDirecto(nombreArchivoParam) {
+    const archivo = nombreArchivoParam || archivoImagenActual;
+    if (!archivo) return;
+
+    fetch(archivo)
+      .then(function(response) {
+        if (!response.ok) throw new Error("No disponible");
+        return response.blob();
+      })
+      .then(function(blob) {
+        const urlTemporal = window.URL.createObjectURL(blob);
+        const enlace = document.createElement("a");
+        enlace.style.display = "none";
+        enlace.href = urlTemporal;
+        enlace.download = archivo;
+        document.body.appendChild(enlace);
+        enlace.click();
+        window.URL.revokeObjectURL(urlTemporal);
+        document.body.removeChild(enlace);
+      })
+      .catch(function() {
+        // Respaldo: abre la imagen en una nueva pestaña si falla el Blob
+        window.open(archivo, "_blank");
+      });
   }
 
   document.addEventListener("DOMContentLoaded", function() {
@@ -774,11 +825,10 @@
     }
   });
 
-  // GENERAR REPORTE PDF (ENLACES DIRECTOS SIN BLOQUEO DE DESCARGA)
+  // GENERAR REPORTE PDF CON DESCARGA SEGURA DE IMÁGENES Y PDFs
   function generarReporte() {
     const fecha = new Date().toLocaleDateString("es-CO", { year: 'numeric', month: 'long', day: 'numeric' });
     
-    // Calcula la ruta base exacta del repositorio en GitHub Pages
     const origen = window.location.origin;
     const rutaCarpeta = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
     const urlBase = origen + rutaCarpeta;
@@ -800,18 +850,22 @@
     listaDocumentos.forEach(function(doc) {
       if (doc.visible) {
         const linkCompleto = urlBase + doc.archivo;
+        
+        // Para IMAGENES usamos un botón que descarga por Blob; para PDFs enlace directo
+        const accionBoton = doc.tipo === 'IMAGEN'
+          ? `<button onclick="descargarImagen('${linkCompleto}', '${doc.archivo}')" style="display: inline-block; background: #0a192f; color: #fef08a; font-weight: 700; font-size: 12px; padding: 6px 14px; border-radius: 6px; border: 1px solid #d4af37; cursor: pointer;">📥 Descargar Imagen</button>`
+          : `<a href="${linkCompleto}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background: #0a192f; color: #fef08a; text-decoration: none; font-weight: 700; font-size: 12px; padding: 6px 14px; border-radius: 6px; border: 1px solid #d4af37;">📥 Descargar PDF</a>`;
+
         filasTabla += `
           <tr>
             <td style="padding: 10px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e293b;">
               ✓ ${doc.nombre}
             </td>
             <td style="padding: 10px 12px; border: 1px solid #cbd5e1; text-align: center;">
-              <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; background: doc.tipo==='PDF'?'#fee2e2;color:#991b1b;':'#dbeafe;color:#1e40af;'">{doc.tipo}</span>
+              <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; background: ${doc.tipo === 'PDF' ? '#fee2e2; color: #991b1b;' : '#dbeafe; color: #1e40af;'}">${doc.tipo}</span>
             </td>
             <td style="padding: 10px 12px; border: 1px solid #cbd5e1; text-align: center;">
-              <a href="${linkCompleto}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background: #0a192f; color: #fef08a; text-decoration: none; font-weight: 700; font-size: 12px; padding: 6px 14px; border-radius: 6px; border: 1px solid #d4af37;">
-                📥 Abrir / Descargar
-              </a>
+              ${accionBoton}
             </td>
           </tr>
         `;
@@ -849,6 +903,26 @@
             .paper { border: none; box-shadow: none; padding: 0; max-width: 100%; }
           }
         </style>
+        <script>
+          function descargarImagen(url, nombreArchivo) {
+            fetch(url)
+              .then(function(res) {
+                if (!res.ok) throw new Error('Error');
+                return res.blob();
+              })
+              .then(function(blob) {
+                var a = document.createElement('a');
+                a.href = window.URL.createObjectURL(blob);
+                a.download = nombreArchivo;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+              })
+              .catch(function() {
+                window.open(url, '_blank');
+              });
+          }
+        <\/script>
       </head>
       <body>
         <div class="top-bar">
@@ -882,7 +956,7 @@
             </tr>
           </table>
           <div class="note-box">
-            💡 <strong>Instrucciones:</strong> Este documento es un índice activo. Al abrir este reporte descargado en cualquier dispositivo o lector PDF, haga clic sobre el botón <strong>"Abrir / Descargar"</strong> de cualquier soporte para visualizarlo o descargarlo en alta resolución.
+            💡 <strong>Instrucciones:</strong> Este documento es un índice activo. Haga clic sobre el botón de descarga de cualquier soporte para obtenerlo en alta resolución.
           </div>
           <div class="sec-title">Enlaces Directos de Descarga:</div>
           <table class="table-docs">
@@ -948,4 +1022,3 @@
 
 </body>
 </html>
-
